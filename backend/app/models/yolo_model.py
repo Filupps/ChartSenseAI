@@ -19,9 +19,15 @@ class YOLOModel:
     
     def _load_model(self):
         """Загрузка модели YOLO из папки models в корне проекта"""
-        model_path = Path(settings.MODEL_PATH)
-        fallback_path = Path(settings.MODEL_FALLBACK)
         models_dir = Path(settings.MODELS_DIR)
+        
+        model_path = Path(settings.MODEL_PATH)
+        if not model_path.is_absolute():
+            model_path = models_dir / model_path
+            
+        fallback_path = Path(settings.MODEL_FALLBACK)
+        if not fallback_path.is_absolute():
+            fallback_path = models_dir / fallback_path
         
         # Создаем папку models если её нет
         models_dir.mkdir(exist_ok=True)

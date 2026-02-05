@@ -1,6 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from pathlib import Path
 from typing import List
+import os
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
