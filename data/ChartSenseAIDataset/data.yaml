@@ -1,0 +1,13 @@
+train: C:\ChartSenseAI\data\ChartSenseAIV2.v3i.yolov8\train\images
+val: C:\ChartSenseAI\data\ChartSenseAIV2.v3i.yolov8\valid\images
+test: C:\ChartSenseAI\data\ChartSenseAIV2.v3i.yolov8\test\images
+
+nc: 5
+names: ['arrow', 'circle', 'diamond', 'rectangle', 'text_region']
+
+roboflow:
+  workspace: fil-l7nz6
+  project: chartsenseaiv2
+  version: 6
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/fil-l7nz6/chartsenseaiv2/dataset/6

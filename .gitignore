@@ -1,0 +1,86 @@
+# Python 
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# Pyre
+.pyre/
+
+# Node.js 
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend build
+dist/
+build/
+.cache/
+.vite/
+
+# Environment 
+.env
+.env.local
+.env.*.local
+*.local
+
+# IDE 
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+.cursor/
+
+# OS 
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Logs 
+*.log
+logs/
+
+# Temp files 
+*.tmp
+*.temp
+
+# Backups 
+*.bak
+*.backup
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker 
+docker-compose.override.yml
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Jupyter
+.ipynb_checkpoints/
