@@ -26,7 +26,7 @@ ChartSenseAI — это веб-приложение, которое:
 - LLM сгенерирует PlantUML код
 - Получите визуальную диаграмму (SVG/PNG)
 
-## 🛠 Технологии
+##  Технологии
 
 **Backend:**
 - FastAPI — REST API
@@ -40,7 +40,6 @@ ChartSenseAI — это веб-приложение, которое:
 - React + TypeScript
 - Vite — сборка
 - Axios — HTTP запросы
-- Unbounded font — дизайн
 
 **LLM:**
 - OpenRouter API — генерация кода и диаграмм

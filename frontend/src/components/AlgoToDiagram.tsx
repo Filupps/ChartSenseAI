@@ -91,6 +91,7 @@ stop
           'Authorization': `Bearer ${config.OPENROUTER_API_KEY}`,
         },
         body: JSON.stringify({
+          model: 'openai/gpt-4o-mini',
           messages: [
             { role: 'system', content: systemPrompt },
             ...newMessages.map(m => ({ role: m.role, content: m.content })),
@@ -100,7 +101,12 @@ stop
       });
 
       const data = await response.json();
-      const assistantMessage = data.choices?.[0]?.message?.content || 'Ошибка генерации';
+      
+      if (!response.ok) {
+        throw new Error(data.error?.message || `HTTP ${response.status}: ${JSON.stringify(data)}`);
+      }
+      
+      const assistantMessage = data.choices?.[0]?.message?.content || 'Ошибка генерации: пустой ответ от API';
       
       setMessages([...newMessages, { role: 'assistant', content: assistantMessage }]);
 

@@ -78,7 +78,9 @@ async def predict(
             result["processing_id"] = db_processing.id
             print(f" Saved to DB: processing_id={db_processing.id}")
         except Exception as db_error:
-            print(f" DB save failed (non-critical): {db_error}")
+            import traceback
+            print(f"[DB ERROR] Save failed: {db_error}")
+            traceback.print_exc()
             result["processing_id"] = None
         
         return JSONResponse(content=result)
