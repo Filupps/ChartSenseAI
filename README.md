@@ -40,7 +40,6 @@ ChartSenseAI — это веб-приложение, которое:
 - React + TypeScript
 - Vite — сборка
 - Axios — HTTP запросы
-- Unbounded font — дизайн
 
 **LLM:**
 - OpenRouter API — генерация кода и диаграмм
