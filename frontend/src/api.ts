@@ -120,16 +120,24 @@ export interface PredictionResponse {
   processing_id?: number;
   session_id?: string;
   processing_time_ms?: number;
+  _page_preview_base64?: string;
+  pdf_pages?: number;
 }
 
-export const predictDiagram = async (file: File): Promise<PredictionResponse> => {
+export const predictDiagram = async (file: File, page?: number): Promise<PredictionResponse> => {
   const formData = new FormData();
   formData.append('file', file);
+
+  const params: Record<string, string> = {};
+  if (page !== undefined) {
+    params.page = String(page);
+  }
 
   const response = await apiClient.post<PredictionResponse>(
     '/predict',
     formData,
     {
+      params,
       headers: {
         'Content-Type': 'multipart/form-data',
         'X-Session-Id': getSessionId(),

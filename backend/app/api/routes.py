@@ -1,17 +1,23 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Header
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Header, Query
 from fastapi.responses import JSONResponse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 import io
 import time
 import uuid
+import base64
 from PIL import Image
 
 from app.services.inference import process_diagram
+from app.services.pdf_utils import pdf_to_images, svg_to_image
 from app.db.database import get_db
 from app.db import crud, schemas
 from app.models.yolo_model import get_model_info
 from app.api.auth import verify_api_key
+
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/bmp", "image/webp", "image/tiff"}
+ALLOWED_PDF_TYPES = {"application/pdf"}
+ALLOWED_SVG_TYPES = {"image/svg+xml"}
 
 router = APIRouter()
 
@@ -20,31 +26,64 @@ def get_session_id(x_session_id: Optional[str] = Header(None)) -> str:
     return x_session_id or str(uuid.uuid4())
 
 
+def _open_image(contents: bytes) -> Image.Image:
+    img = Image.open(io.BytesIO(contents))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return img
+
+
 @router.post("/predict")
 async def predict(
     file: UploadFile = File(...),
+    page: int = Query(0, ge=0, description="PDF page index (0-based)"),
     session_id: str = Depends(get_session_id),
     db: Session = Depends(get_db),
     _: bool = Depends(verify_api_key)
 ) -> Dict[str, Any]:
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
+    content_type = (file.content_type or "").lower()
+    fname = (file.filename or "").lower()
+    is_svg = content_type in ALLOWED_SVG_TYPES or fname.endswith(".svg")
+    is_pdf = content_type in ALLOWED_PDF_TYPES or fname.endswith(".pdf")
+    is_image = content_type in ALLOWED_IMAGE_TYPES or content_type.startswith("image/")
+
+    if not is_image and not is_pdf and not is_svg:
+        raise HTTPException(status_code=400, detail="File must be an image, PDF or SVG")
+
     try:
         start_time = time.time()
-        
         contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
-        
+
+        pdf_total_pages = None
+        if is_svg:
+            image = svg_to_image(contents)
+        elif is_pdf:
+            images = pdf_to_images(contents)
+            if not images:
+                raise HTTPException(status_code=400, detail="Could not extract images from PDF")
+            pdf_total_pages = len(images)
+            if page >= pdf_total_pages:
+                raise HTTPException(status_code=400, detail=f"Page {page} not found. PDF has {pdf_total_pages} pages.")
+            image = images[page]
+        else:
+            image = _open_image(contents)
+
         if image.mode != "RGB":
             image = image.convert("RGB")
-        
+
         result = await process_diagram(image)
-        
+
         processing_time = (time.time() - start_time) * 1000
-        
+
         result["session_id"] = session_id
         result["processing_time_ms"] = processing_time
+
+        if is_pdf or is_svg:
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            result["_page_preview_base64"] = base64.b64encode(buf.getvalue()).decode("ascii")
+            if is_pdf:
+                result["pdf_pages"] = pdf_total_pages
         
         # Сохранение в БД (опционально, не блокирует основной функционал)
         try:

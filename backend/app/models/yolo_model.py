@@ -73,40 +73,84 @@ class YOLOModel:
         self.model.to(self.device)
         print(f" Model loaded successfully on {self.device.upper()}")
     
+    @staticmethod
+    def _pad_extreme_aspect(image: Image.Image, max_ratio: float = 3.0) -> Image.Image:
+        w, h = image.size
+        ratio = max(w, h) / max(1, min(w, h))
+        if ratio <= max_ratio:
+            return image
+        if w > h:
+            new_h = max(h, int(w / max_ratio))
+            padded = Image.new("RGB", (w, new_h), (255, 255, 255))
+            padded.paste(image, (0, (new_h - h) // 2))
+        else:
+            new_w = max(w, int(h / max_ratio))
+            padded = Image.new("RGB", (new_w, h), (255, 255, 255))
+            padded.paste(image, ((new_w - w) // 2, 0))
+        return padded
+
     def predict(self, image: Image.Image, conf_threshold: float = 0.25) -> List[Dict[str, Any]]:
-        """
-        Предсказание bounding boxes для элементов диаграммы
-        
-        Args:
-            image: PIL Image
-            conf_threshold: порог уверенности
-            
-        Returns:
-            List of dicts with keys: 'bbox', 'class', 'confidence', 'class_name'
-        """
         if self.model is None:
             raise RuntimeError("Model not loaded")
-        
-        # Инференс
-        results = self.model(image, conf=conf_threshold, device=self.device)
+
+        orig_w, orig_h = image.size
+        padded = self._pad_extreme_aspect(image)
+        pad_w, pad_h = padded.size
+        offset_x = (pad_w - orig_w) // 2
+        offset_y = (pad_h - orig_h) // 2
+
+        imgsz = 640
+        long_side = max(pad_w, pad_h)
+        if long_side > 1200:
+            imgsz = 1280
+
+        results = self.model(padded, conf=conf_threshold, device=self.device, imgsz=imgsz)
         
         detections = []
         for result in results:
+            obb = result.obb
             boxes = result.boxes
-            for i in range(len(boxes)):
-                # Получаем координаты bbox (xyxy format)
-                bbox = boxes.xyxy[i].cpu().numpy().tolist()
-                confidence = float(boxes.conf[i].cpu().numpy())
-                class_id = int(boxes.cls[i].cpu().numpy())
+
+            raw_boxes = []
+            if obb is not None and hasattr(obb, '__len__') and len(obb) > 0:
+                for i in range(len(obb)):
+                    xyxyxyxy = obb.xyxyxyxy[i].cpu().numpy()
+                    xs = xyxyxyxy[:, 0]
+                    ys = xyxyxyxy[:, 1]
+                    x1, x2 = float(min(xs)), float(max(xs))
+                    y1, y2 = float(min(ys)), float(max(ys))
+                    confidence = float(obb.conf[i].cpu().numpy())
+                    class_id = int(obb.cls[i].cpu().numpy())
+                    raw_boxes.append(([x1, y1, x2, y2], confidence, class_id))
+            elif boxes is not None and hasattr(boxes, '__len__') and len(boxes) > 0:
+                for i in range(len(boxes)):
+                    bbox = boxes.xyxy[i].cpu().numpy().tolist()
+                    confidence = float(boxes.conf[i].cpu().numpy())
+                    class_id = int(boxes.cls[i].cpu().numpy())
+                    raw_boxes.append((bbox, confidence, class_id))
+
+            for bbox, confidence, class_id in raw_boxes:
+                bx1 = bbox[0] - offset_x
+                by1 = bbox[1] - offset_y
+                bx2 = bbox[2] - offset_x
+                by2 = bbox[3] - offset_y
+
+                bx1 = max(0.0, min(bx1, float(orig_w)))
+                by1 = max(0.0, min(by1, float(orig_h)))
+                bx2 = max(0.0, min(bx2, float(orig_w)))
+                by2 = max(0.0, min(by2, float(orig_h)))
+
+                if bx2 - bx1 < 5 or by2 - by1 < 5:
+                    continue
+
                 class_name = self.model.names[class_id]
-                
                 detections.append({
-                    "bbox": bbox,  # [x1, y1, x2, y2]
+                    "bbox": [bx1, by1, bx2, by2],
                     "class": class_id,
                     "confidence": confidence,
                     "class_name": class_name
                 })
-        
+
         return detections
     
     def get_text_regions(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

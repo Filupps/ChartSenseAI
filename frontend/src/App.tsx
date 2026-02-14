@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { UploadForm } from './components/UploadForm';
 import { DiagramView } from './components/DiagramView';
 import { AlgoView } from './components/AlgoView';

@@ -39,14 +39,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # For GPU support, uncomment:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # Frontend
   frontend:

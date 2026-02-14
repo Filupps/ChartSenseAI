@@ -61,7 +61,7 @@ async def process_diagram(image: Image.Image) -> Dict[str, Any]:
     for i, shape in enumerate(shape_elements):
         bbox = shape.get("bbox")
         if bbox:
-            text = ocr.extract_text(image, bbox)
+            text = ocr.extract_text(image, bbox, class_name=shape.get("class_name", ""))
             shape_id = f"shape_{i}"
             shape_texts[shape_id] = {
                 "text": text,

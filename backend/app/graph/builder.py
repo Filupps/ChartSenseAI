@@ -4,40 +4,57 @@ import math
 
 class GraphBuilder:
     """
-    Построитель ориентированного графа из bounding boxes и стрелок
-    с улучшенными геометрическими и топологическими эвристиками для ветвлений
+    Построитель ориентированного графа из bounding boxes и стрелок.
+    Автоматически определяет направление потока (vertical / horizontal).
     """
-    
+
     def __init__(self):
         self.nodes = []
         self.edges = []
-    
+        self.flow = "vertical"
+
+    @staticmethod
+    def _detect_flow(nodes: List[Dict[str, Any]], arrows: List[Dict[str, Any]]) -> str:
+        if len(nodes) < 2:
+            return "vertical"
+        xs = [n["x_position"] for n in nodes]
+        ys = [n["y_position"] for n in nodes]
+        spread_x = max(xs) - min(xs)
+        spread_y = max(ys) - min(ys)
+        if spread_x > spread_y * 1.6:
+            return "horizontal"
+        return "vertical"
+
+    def _primary_pos(self, node: Dict[str, Any]) -> float:
+        return node["x_position"] if self.flow == "horizontal" else node["y_position"]
+
+    def _secondary_pos(self, node: Dict[str, Any]) -> float:
+        return node["y_position"] if self.flow == "horizontal" else node["x_position"]
+
     def build_graph(
-        self, 
-        shape_elements: List[Dict[str, Any]], 
+        self,
+        shape_elements: List[Dict[str, Any]],
         arrows: List[Dict[str, Any]],
         shape_texts: Dict[str, Dict[str, Any]],
         text_regions: Dict[str, Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Построение графа с корректной обработкой ветвлений (diamond/decision)"""
         if text_regions is None:
             text_regions = {}
-        
-        # Создаем узлы
+
         nodes = []
         for i, element in enumerate(shape_elements):
             node_id = f"node_{i}"
             bbox = element.get("bbox", [])
             center = self._get_center(bbox)
-            
+
             shape_id = f"shape_{i}"
             text = shape_texts.get(shape_id, {}).get("text", "")
-            
+
             if not text:
                 text = self._find_associated_text(bbox, text_regions)
-            
+
             node_type = self._determine_node_type_advanced(element, bbox, center)
-            
+
             nodes.append({
                 "id": node_id,
                 "type": node_type,
@@ -49,37 +66,36 @@ class GraphBuilder:
                 "class_name": element.get("class_name", ""),
                 "confidence": element.get("confidence", 0.0)
             })
-        
-        # Определяем START (самый верхний)
+
+        self.flow = self._detect_flow(nodes, arrows)
+        flow_label = "left-to-right" if self.flow == "horizontal" else "top-to-bottom"
+        print(f"   Flow direction: {flow_label}")
+
         if nodes:
-            start_node = min(nodes, key=lambda n: n["y_position"])
+            start_node = min(nodes, key=lambda n: self._primary_pos(n))
             if start_node["type"] == "process":
                 start_node["type"] = "start"
-                print(f"   Start node: {start_node['id']} - '{start_node['text'][:30]}...' (topmost)")
-        
-        # Определяем ВСЕ END узлы (по тексту "Конец" или "End")
+            qualifier = "leftmost" if self.flow == "horizontal" else "topmost"
+            print(f"   Start node: {start_node['id']} - '{start_node['text'][:30]}...' ({qualifier})")
+
         for node in nodes:
             text_lower = node.get("text", "").lower()
             if "конец" in text_lower or "end" in text_lower or "финиш" in text_lower or "finish" in text_lower:
                 node["type"] = "end"
                 print(f"   End node: {node['id']} - '{node['text'][:30]}...'")
-        
-        # Создаем ребра с улучшенным определением связей
+
         edges = self._build_edges(arrows, nodes, text_regions)
-        
-        # FALLBACK: Если узлы не связаны, соединяем их по Y-позиции
+
         edges = self._connect_orphan_nodes(nodes, edges)
-        
-        # Валидация
+
         self._validate_topology(nodes, edges)
-        
-        # Добавляем метаданные о ветвлениях
+
         decision_info = self._analyze_decisions(nodes, edges)
-        
+
         return {
             "nodes": nodes,
             "edges": edges,
-            "flow_direction": "top-to-bottom",
+            "flow_direction": flow_label,
             "decisions": decision_info
         }
     
@@ -116,7 +132,7 @@ class GraphBuilder:
             
             # Для decision-узлов определяем label ветки
             if from_node["type"] == "decision":
-                branch_label = self._find_branch_label(arrow_bbox, text_regions, direction)
+                branch_label = self._find_branch_label(from_node, to_node, arrow_bbox, text_regions, direction)
                 edge["branch_label"] = branch_label
                 edge["decision_branch"] = self._determine_branch_type(
                     from_node, to_node, direction, branch_label
@@ -134,65 +150,61 @@ class GraphBuilder:
         arrow_bbox: List[float],
         nodes: List[Dict[str, Any]]
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
-        """
-        Находит from/to узлы для стрелки.
-        
-        ВАЖНО: bbox стрелки часто пересекается с узлами (особенно с diamond).
-        Поэтому ищем 2 ближайших узла к центру стрелки и определяем направление
-        по их взаимному расположению.
-        """
         if not nodes or len(arrow_bbox) < 4:
             return None, None, "unknown"
-        
+
         ax1, ay1, ax2, ay2 = arrow_bbox
         arrow_center = ((ax1 + ax2) / 2, (ay1 + ay2) / 2)
-        
-        # Находим все узлы рядом со стрелкой и их расстояния
+
         nearby = []
         for node in nodes:
             dist = self._distance_to_node_edge(arrow_center, node)
-            # Проверяем также пересечение bbox
             if self._bbox_intersects(arrow_bbox, node.get("bbox", [])):
-                dist = min(dist, 10)  # Приоритет пересекающимся
+                dist = min(dist, 10)
             nearby.append((dist, node))
-        
+
         nearby.sort(key=lambda x: x[0])
-        
+
         if len(nearby) < 2:
             return None, None, "unknown"
-        
-        # Берём 2 ближайших узла
+
         node_a = nearby[0][1]
         node_b = nearby[1][1]
-        
-        # Определяем кто from, кто to по Y-позиции (сверху вниз = основной поток)
-        # и X-позиции (для горизонтальных стрелок)
-        ay_a = node_a["y_position"]
-        ay_b = node_b["y_position"]
-        ax_a = node_a["x_position"]
-        ax_b = node_b["x_position"]
-        
-        dy = ay_b - ay_a
-        dx = ax_b - ax_a
-        
-        # Определяем направление
-        if abs(dy) > abs(dx) * 0.5:
-            # Вертикальное движение
-            if dy > 0:
-                from_node, to_node = node_a, node_b
-                direction = "down"
+
+        dy = node_b["y_position"] - node_a["y_position"]
+        dx = node_b["x_position"] - node_a["x_position"]
+
+        if self.flow == "horizontal":
+            if abs(dx) > abs(dy) * 0.5:
+                if dx > 0:
+                    from_node, to_node = node_a, node_b
+                    direction = "right"
+                else:
+                    from_node, to_node = node_b, node_a
+                    direction = "right"
             else:
-                from_node, to_node = node_b, node_a
-                direction = "down"
+                if dy > 0:
+                    from_node, to_node = node_a, node_b
+                    direction = "down"
+                else:
+                    from_node, to_node = node_b, node_a
+                    direction = "up"
         else:
-            # Горизонтальное движение
-            if dx > 0:
-                from_node, to_node = node_a, node_b
-                direction = "right"
+            if abs(dy) > abs(dx) * 0.5:
+                if dy > 0:
+                    from_node, to_node = node_a, node_b
+                    direction = "down"
+                else:
+                    from_node, to_node = node_b, node_a
+                    direction = "down"
             else:
-                from_node, to_node = node_b, node_a
-                direction = "left"
-        
+                if dx > 0:
+                    from_node, to_node = node_a, node_b
+                    direction = "right"
+                else:
+                    from_node, to_node = node_b, node_a
+                    direction = "left"
+
         return from_node, to_node, direction
     
     def _bbox_intersects(self, bbox1: List[float], bbox2: List[float]) -> bool:
@@ -242,31 +254,44 @@ class GraphBuilder:
     
     def _find_branch_label(
         self,
+        from_node: Dict[str, Any],
+        to_node: Dict[str, Any],
         arrow_bbox: List[float],
         text_regions: Dict[str, Dict[str, Any]],
         direction: str
     ) -> str:
-        """Ищет label около стрелки (например, "Товар", "Услуга", "Да", "Нет")"""
+        """Ищет label около стрелки или между узлами"""
         if not text_regions:
             return ""
         
         arrow_center = self._get_center(arrow_bbox)
+        from_center = from_node["center"]
+        to_center = to_node["center"]
+        
+        mid_point = ((from_center[0] + to_center[0]) / 2, (from_center[1] + to_center[1]) / 2)
+        
         best_label = ""
-        best_dist = 80  # Максимальное расстояние для label
+        best_dist = 150
         
         for region in text_regions.values():
             region_bbox = region.get("bbox", [])
-            if not region_bbox:
+            region_text = region.get("text", "").strip()
+            
+            if not region_bbox or not region_text or len(region_text) > 50:
                 continue
             
             region_center = self._get_center(region_bbox)
-            dist = self._euclidean_distance(arrow_center, region_center)
+            
+            dist_to_arrow = self._euclidean_distance(arrow_center, region_center)
+            dist_to_mid = self._euclidean_distance(mid_point, region_center)
+            dist_to_from = self._euclidean_distance(from_center, region_center)
+            
+            dist = min(dist_to_arrow, dist_to_mid, dist_to_from * 0.8)
             
             if dist < best_dist:
-                text = region.get("text", "").strip()
-                if text and len(text) < 30:  # Label обычно короткий
-                    best_dist = dist
-                    best_label = text
+                best_dist = dist
+                best_label = region_text
+                print(f"      Found label '{region_text}' at distance {dist:.1f}")
         
         return best_label
     
@@ -360,14 +385,9 @@ class GraphBuilder:
         nodes: List[Dict[str, Any]],
         edges: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        FALLBACK: соединяет узлы без связей с ближайшими по Y-позиции.
-        Для decision-узлов ищет ОБЕ ветки сразу.
-        """
         new_edges = list(edges)
-        
-        # Сортируем узлы по Y (сверху вниз)
-        sorted_nodes = sorted(nodes, key=lambda n: n["y_position"])
+
+        sorted_nodes = sorted(nodes, key=lambda n: self._primary_pos(n))
         
         # Сначала обрабатываем DECISION узлы — им нужны 2 ветки
         for node in sorted_nodes:
@@ -427,28 +447,28 @@ class GraphBuilder:
             
             # Если узел — прямой потомок decision И нет явных исходящих → проверяем, есть ли блок прямо под ним
             if node_id in decision_branch_targets and node_id not in has_explicit_outgoing:
-                # Проверяем, есть ли блок близко под этим узлом (dy < 150, dx < 80)
-                has_block_below = False
+                has_block_forward = False
                 for other in sorted_nodes:
                     if other["id"] == node_id or other["type"] == "decision":
                         continue
-                    dy = other["y_position"] - node["y_position"]
-                    dx = abs(other["x_position"] - node["x_position"])
-                    if 0 < dy < 150 and dx < 80:
-                        has_block_below = True
+                    dp = self._primary_pos(other) - self._primary_pos(node)
+                    ds = abs(self._secondary_pos(other) - self._secondary_pos(node))
+                    if 0 < dp < 150 and ds < 80:
+                        has_block_forward = True
                         break
-                
-                if not has_block_below:
+
+                if not has_block_forward:
                     print(f"   Leaf node (decision branch): {node_id} - '{node['text'][:25]}...'")
                     continue
             
             if node_id not in has_outgoing:
-                next_node = self._find_next_node_below(node, sorted_nodes[i+1:], has_incoming, sorted_nodes)
+                next_node = self._find_next_node_forward(node, sorted_nodes[i+1:], has_incoming, sorted_nodes)
                 if next_node:
+                    fb_dir = "right" if self.flow == "horizontal" else "down"
                     new_edge = {
                         "from": node_id,
                         "to": next_node["id"],
-                        "direction": "down",
+                        "direction": fb_dir,
                         "fallback": True,
                         "confidence": 0.5
                     }
@@ -464,108 +484,87 @@ class GraphBuilder:
         decision: Dict[str, Any],
         all_nodes: List[Dict[str, Any]]
     ) -> List[Tuple[Dict[str, Any], str]]:
-        """Находит 2 ветки для decision: одну слева, одну справа (или ниже)"""
-        dec_x = decision["x_position"]
-        dec_y = decision["y_position"]
-        
-        # Кандидаты: узлы ниже decision
-        candidates_left = []
-        candidates_right = []
-        
+        dec_p = self._primary_pos(decision)
+        dec_s = self._secondary_pos(decision)
+
+        candidates_low = []
+        candidates_high = []
+
         for node in all_nodes:
-            if node["id"] == decision["id"]:
+            if node["id"] == decision["id"] or node["type"] == "decision":
                 continue
-            if node["type"] == "decision":
-                continue  # Пропускаем другие decision
-            
-            dy = node["y_position"] - dec_y
-            dx = node["x_position"] - dec_x
-            
-            # Узел должен быть ниже (или почти на том же уровне)
-            if dy < -20:
+
+            dp = self._primary_pos(node) - dec_p
+            ds = self._secondary_pos(node) - dec_s
+
+            if dp < -20:
                 continue
-            
-            dist = abs(dx) + dy * 0.5  # Приоритет ближним по X
-            
-            if dx < -20:  # Слева
-                candidates_left.append((dist, node))
-            elif dx > 20:  # Справа
-                candidates_right.append((dist, node))
-            else:  # По центру (ниже) — это "yes" ветка
-                candidates_right.append((dist, node))
-        
+
+            dist = abs(ds) + dp * 0.5
+
+            if ds < -20:
+                candidates_low.append((dist, node))
+            elif ds > 20:
+                candidates_high.append((dist, node))
+            else:
+                candidates_high.append((dist, node))
+
         result = []
-        
-        # Берём ближайший слева → "no"
-        if candidates_left:
-            candidates_left.sort(key=lambda x: x[0])
-            result.append((candidates_left[0][1], "no"))
-        
-        # Берём ближайший справа/снизу → "yes"
-        if candidates_right:
-            candidates_right.sort(key=lambda x: x[0])
-            result.append((candidates_right[0][1], "yes"))
-        
+        if candidates_low:
+            candidates_low.sort(key=lambda x: x[0])
+            result.append((candidates_low[0][1], "no"))
+        if candidates_high:
+            candidates_high.sort(key=lambda x: x[0])
+            result.append((candidates_high[0][1], "yes"))
+
         return result
     
-    def _find_next_node_below(
+    def _find_next_node_forward(
         self,
         current: Dict[str, Any],
         candidates: List[Dict[str, Any]],
         has_incoming: set,
         all_nodes: List[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Находит следующий узел ниже текущего.
-        
-        ВАЖНО: не соединяем узлы с разных веток (левая/правая стороны)
-        """
-        current_y = current["y_position"]
-        current_x = current["x_position"]
-        
-        # Определяем центральную линию диаграммы
+        cur_p = self._primary_pos(current)
+        cur_s = self._secondary_pos(current)
+
         if all_nodes:
-            center_x = sum(n["x_position"] for n in all_nodes) / len(all_nodes)
+            center_s = sum(self._secondary_pos(n) for n in all_nodes) / len(all_nodes)
         else:
-            center_x = current_x
-        
-        # Определяем, на какой стороне находится текущий узел
-        current_side = "left" if current_x < center_x - 50 else ("right" if current_x > center_x + 50 else "center")
-        
+            center_s = cur_s
+
+        cur_side = "low" if cur_s < center_s - 50 else ("high" if cur_s > center_s + 50 else "center")
+
         best = None
         best_score = float('inf')
-        
+
         for node in candidates:
-            if node["y_position"] <= current_y:
+            if self._primary_pos(node) <= cur_p:
                 continue
-            
-            # Определяем сторону кандидата
-            node_side = "left" if node["x_position"] < center_x - 50 else ("right" if node["x_position"] > center_x + 50 else "center")
-            
-            # Если текущий узел на краю (left/right), соединяем только с узлами той же стороны или центра
-            if current_side == "left" and node_side == "right":
+
+            node_s = self._secondary_pos(node)
+            node_side = "low" if node_s < center_s - 50 else ("high" if node_s > center_s + 50 else "center")
+
+            if cur_side == "low" and node_side == "high":
                 continue
-            if current_side == "right" and node_side == "left":
+            if cur_side == "high" and node_side == "low":
                 continue
-            
-            dy = node["y_position"] - current_y
-            dx = abs(node["x_position"] - current_x)
-            
-            # Предпочитаем узлы близко по X
-            score = dy + dx * 3
-            
-            # Бонус узлам без входящих связей
+
+            dp = self._primary_pos(node) - cur_p
+            ds = abs(self._secondary_pos(node) - cur_s)
+
+            score = dp + ds * 3
+
             if node["id"] not in has_incoming:
                 score *= 0.5
-            
-            # Бонус узлам на той же стороне
-            if current_side == node_side:
+            if cur_side == node_side:
                 score *= 0.7
-            
+
             if score < best_score:
                 best_score = score
                 best = node
-        
+
         return best
     
     def _find_alternative_branch(
@@ -688,11 +687,10 @@ class GraphBuilder:
             if ntype == "decision" and out_deg < 2:
                 print(f"   Warning: Decision {nid} has only {out_deg} outputs (expected 2)")
             
-            # Определяем циклы
             for edge in edges:
                 if edge["from"] == nid:
                     to_node = next((n for n in nodes if n["id"] == edge["to"]), None)
-                    if to_node and to_node["y_position"] < node["y_position"]:
+                    if to_node and self._primary_pos(to_node) < self._primary_pos(node):
                         edge["is_loop"] = True
 
 

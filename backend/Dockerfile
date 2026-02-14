@@ -1,4 +1,8 @@
-FROM python:3.10-slim
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y python3.10 python3-pip \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,11 +15,9 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 
-# Зависимости Python
+# Зависимости Python (CUDA 11.8)
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch==2.6.0 \
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu118 \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY . .

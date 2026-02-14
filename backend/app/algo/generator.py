@@ -43,10 +43,13 @@ class AlgorithmGenerator:
             if to_id:
                 self.edges_by_to.setdefault(to_id, []).append(edge)
         
-        # Находим начальный узел
         start_node = self._find_start_node(nodes)
         if not start_node:
-            start_node = min(nodes, key=lambda n: n.get("y_position", 0))
+            flow = graph.get("flow_direction", "top-to-bottom")
+            if flow == "left-to-right":
+                start_node = min(nodes, key=lambda n: n.get("x_position", 0))
+            else:
+                start_node = min(nodes, key=lambda n: n.get("y_position", 0))
         
         # Генерируем структурированный алгоритм
         visited = set()
@@ -54,6 +57,10 @@ class AlgorithmGenerator:
         
         # Генерируем плоский список шагов
         steps = self._flatten_structured(structured)
+        
+        print(f"   [ALGO] Generated {len(steps)} steps")
+        for i, s in enumerate(steps[:10]):
+            print(f"      Step {i}: {s[:60]}...")
         
         return {
             "steps": steps,
@@ -116,57 +123,53 @@ class AlgorithmGenerator:
         node_id = node["id"]
         outgoing = self.edges_by_from.get(node_id, [])
         
-        # Сортируем ветки: left/no идут в else, right/yes/down в then
         branches = {"then": None, "else": None}
         branch_labels = {"then": "", "else": ""}
         
+        print(f"   [DECISION] {node_id} has {len(outgoing)} outgoing edges")
+        
         for edge in outgoing:
-            branch_type = edge.get("decision_branch", "down")
+            branch_type = edge.get("decision_branch", "unknown")
             branch_label = edge.get("branch_label", "")
             to_id = edge.get("to")
+            direction = edge.get("direction", "")
             
-            if branch_type in ["left", "no"]:
+            print(f"      Branch: type={branch_type}, label='{branch_label}', to={to_id}, dir={direction}")
+            
+            if branch_type in ["no", "left"]:
                 branches["else"] = to_id
-                branch_labels["else"] = branch_label
+                branch_labels["else"] = branch_label or "Нет"
+            elif branch_type in ["yes", "right", "down"]:
+                branches["then"] = to_id
+                branch_labels["then"] = branch_label or "Да"
             else:
-                # right, yes, down → основная ветка
                 if branches["then"] is None:
                     branches["then"] = to_id
-                    branch_labels["then"] = branch_label
-                else:
+                    branch_labels["then"] = branch_label or "Да"
+                elif branches["else"] is None:
                     branches["else"] = to_id
-                    branch_labels["else"] = branch_label
+                    branch_labels["else"] = branch_label or "Нет"
         
-        # Если обе ветки не определены, берём по порядку
-        if branches["then"] is None and branches["else"] is None and outgoing:
-            if len(outgoing) >= 1:
-                branches["then"] = outgoing[0].get("to")
-                branch_labels["then"] = outgoing[0].get("branch_label", "")
-            if len(outgoing) >= 2:
-                branches["else"] = outgoing[1].get("to")
-                branch_labels["else"] = outgoing[1].get("branch_label", "")
-        
-        # Находим точку слияния (merge point)
         merge_point = self._find_merge_point(branches["then"], branches["else"])
         
-        # Рекурсивно обходим ветки (до точки слияния)
         then_steps = []
         else_steps = []
         
-        visited_copy = visited.copy()  # Не портим visited для второй ветки
+        visited_then = visited.copy()
+        visited_else = visited.copy()
         
         if branches["then"]:
             then_steps = self._traverse_branch(
-                branches["then"], visited_copy, merge_point, depth + 1
+                branches["then"], visited_then, merge_point, depth + 1
             )
         
         if branches["else"]:
             else_steps = self._traverse_branch(
-                branches["else"], visited, merge_point, depth + 1
+                branches["else"], visited_else, merge_point, depth + 1
             )
         
-        # Объединяем visited
-        visited.update(visited_copy)
+        visited.update(visited_then)
+        visited.update(visited_else)
         
         step = {
             "type": "decision",
@@ -182,7 +185,6 @@ class AlgorithmGenerator:
             }
         }
         
-        # Добавляем продолжение после слияния
         if merge_point and merge_point not in visited:
             step["merge_point"] = merge_point
             continuation = self._traverse_graph(merge_point, visited, depth)

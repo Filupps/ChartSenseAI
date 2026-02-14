@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 5
+names: ['arrow', 'circle', 'diamond', 'rectangle', 'text_region']
+
+roboflow:
+  workspace: fil-l7nz6
+  project: chartsenseaiv3
+  version: 3
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/fil-l7nz6/chartsenseaiv3/dataset/3

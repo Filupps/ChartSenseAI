@@ -9,11 +9,13 @@ pillow==10.4.0
 opencv-python
 numpy
 
-torch==2.6.0
-torchvision==0.21.0
+torch
+torchvision
 ultralytics
 
 pytesseract
+PyMuPDF
+cairosvg
 
 sqlalchemy
 pymysql

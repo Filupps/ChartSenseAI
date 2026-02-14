@@ -1,8 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
 from pathlib import Path
 from typing import List
-import os
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
@@ -32,7 +30,7 @@ class Settings(BaseSettings):
     
     @property
     def cors_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+        return [o.strip() for o in self.CORS_ORIGINS.split(",")]
     
     API_KEY_REQUIRED: bool = False
     API_KEY: str = ""

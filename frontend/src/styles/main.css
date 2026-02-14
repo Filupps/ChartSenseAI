@@ -1691,7 +1691,7 @@ body {
     flex-direction: column;
     gap: 10px;
   }
-
+  
   .navbar-links {
     flex-wrap: wrap;
     justify-content: center;
@@ -1708,7 +1708,7 @@ body {
   .hero-subtitle {
     font-size: 1.05rem;
   }
-
+  
   .hero-cta {
     flex-direction: column;
   }
